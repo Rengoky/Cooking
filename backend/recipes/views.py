@@ -22,9 +22,9 @@ from .serializers.common import (
     IngredientSerializer,
     RecipeReadSerializer,
     RecipeWriteSerializer,
-    TagSerializer
+    TagSerializer,
+    RecipeShortReadSerializer
 )
-from .serializers import RecipeShortReadSerializer
 
 FAVORITE_ALREADY_EXISTS = 'Вы уже подписаны!'
 FAVORITE_DONT_EXIST = 'Подписки не существует!'

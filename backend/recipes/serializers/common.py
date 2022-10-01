@@ -192,3 +192,14 @@ class RecipeWriteSerializer(ModelSerializer):
         instance.tags.clear()
         instance = self.add_ingredients_and_tags(instance, validated_data)
         return super().update(instance, validated_data)
+
+
+class SubscriptionSerializer(UserSerializer):
+    recipes = RecipeShortReadSerializer(many=True)
+    recipes_count = SerializerMethodField()
+
+    class Meta(UserSerializer.Meta):
+        fields = UserSerializer.Meta.fields + ('recipes', 'recipes_count',)
+
+    def get_recipes_count(self, obj):
+        return obj.recipes.count()

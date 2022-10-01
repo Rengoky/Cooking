@@ -1,17 +1,13 @@
-from os import environ
+import os
 from pathlib import Path
-
-from dotenv import load_dotenv
-
-load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-SECRET_KEY = environ['SECRET_KEY']
+SECRET_KEY = 'django-insecure-%=ga3z9p4v8dr*yb3l^_3m32c2ro8g2n-vueujh)6%9cfvf_$9'
 
-DEBUG = environ.get('DEBUG', 'FALSE').upper() == 'TRUE'
+DEBUG = os.environ.get('DEBUG', 'FALSE').upper() == 'TRUE'
 
-ALLOWED_HOSTS = environ['ALLOWED_HOSTS'].split(',')
+ALLOWED_HOSTS = ['*']
 
 INTERNAL_IPS = ['127.0.0.1']
 
@@ -66,12 +62,12 @@ WSGI_APPLICATION = 'foodgram.wsgi.application'
 
 DATABASES = {
     'default': {
-        'ENGINE': environ['DB_ENGINE'],
-        'NAME': environ['DB_NAME'],
-        'USER': environ['POSTGRES_USER'],
-        'PASSWORD': environ['POSTGRES_PASSWORD'],
-        'HOST': environ['DB_HOST'],
-        'PORT': environ['DB_PORT'],
+        'ENGINE': os.environ['DB_ENGINE'],
+        'NAME': os.environ['DB_NAME'],
+        'USER': os.environ['DB_USER'],
+        'PASSWORD': os.environ['DB_PASSWORD'],
+        'HOST': os.environ['DB_HOST'],
+        'PORT': os.environ['DB_PORT'],
     }
 }
 

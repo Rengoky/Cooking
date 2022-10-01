@@ -18,9 +18,8 @@ from rest_framework.viewsets import GenericViewSet
 from foodgram.constants import ERRORS_KEY
 from foodgram.pagination import LimitPageNumberPagination
 from recipes.models import Recipe
-from recipes.serializers.nested import RecipeShortReadSerializer
+from recipes.serializers.common import RecipeShortReadSerializer, SubscriptionSerializer
 from .models import ShoppingCart, Subscribe, User
-from .serializers import SubscriptionSerializer
 
 FILE_NAME = 'shopping_cart.txt'
 
