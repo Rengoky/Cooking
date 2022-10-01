@@ -1,126 +1,125 @@
-import datetime
-from django.shortcuts import HttpResponse, get_object_or_404
-from django_filters.rest_framework import DjangoFilterBackend
-from rest_framework import status, viewsets
-from rest_framework.pagination import PageNumberPagination
-from rest_framework.permissions import IsAuthenticated, AllowAny
+from django.db import IntegrityError
+from django.shortcuts import get_object_or_404
+from django_filters.rest_framework.backends import DjangoFilterBackend
+from rest_framework.decorators import action
+from rest_framework.permissions import SAFE_METHODS, IsAuthenticated
 from rest_framework.response import Response
-from rest_framework.views import APIView
+from rest_framework.status import (
+    HTTP_200_OK,
+    HTTP_201_CREATED,
+    HTTP_204_NO_CONTENT,
+    HTTP_400_BAD_REQUEST
+)
+from rest_framework.viewsets import ModelViewSet
 
-from .filters import RecipeFilter, IngredientFilter
-from .models import (Favorite, IngredientAmount, Ingredient,
-                     Recipe, ShoppingList)
-from .permissions import IsOwnerOrReadOnly
-from .serializers import (FavoriteSerializer, RecipeFullSerializer,
-                          RecipeSerializer, ShoppingListSerializer,
-                          IngredientSerializer)
+from foodgram.constants import ERRORS_KEY
+from foodgram.mixins import ListRetriveViewSet
+from foodgram.pagination import LimitPageNumberPagination
+from foodgram.permissions import IsAuthorOrAdminOrReadOnly
+from .filters import IngredientSearchFilter, RecipeFilter
+from .models import Favorite, Ingredient, Recipe, Tag
+from .serializers.common import (
+    IngredientSerializer,
+    RecipeReadSerializer,
+    RecipeWriteSerializer,
+    TagSerializer
+)
+from .serializers import RecipeShortReadSerializer
+
+FAVORITE_ALREADY_EXISTS = 'Вы уже подписаны!'
+FAVORITE_DONT_EXIST = 'Подписки не существует!'
 
 
-class IngredientView(viewsets.ReadOnlyModelViewSet):
+class TagViewSet(ListRetriveViewSet):
+    serializer_class = TagSerializer
+    queryset = Tag.objects.all()
+    http_method_names = ('get',)
+
+
+class IngredientViewSet(ListRetriveViewSet):
     serializer_class = IngredientSerializer
-    permission_classes = [AllowAny, ]
+    filter_backends = (DjangoFilterBackend,)
+    filterset_class = IngredientSearchFilter
     queryset = Ingredient.objects.all()
-    filter_backends = [DjangoFilterBackend, ]
-    filter_class = IngredientFilter
-    pagination_class = None
+    http_method_names = ('get',)
 
 
-class RecipeViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsOwnerOrReadOnly, ]
-    queryset = Recipe.objects.all()
-    pagination_class = PageNumberPagination
-    pagination_class.page_size = 6
-    filter_backends = [DjangoFilterBackend, ]
+class RecipeViewSet(ModelViewSet):
+    pagination_class = LimitPageNumberPagination
+    permission_classes = (IsAuthorOrAdminOrReadOnly,)
+    filter_backends = (DjangoFilterBackend,)
     filterset_class = RecipeFilter
+    queryset = Recipe.objects.all()
+    http_method_names = ('get', 'post', 'put', 'patch', 'delete',)
 
     def get_serializer_class(self):
-        if self.request.method in ('POST', 'PUT', 'PATCH'):
-            return RecipeFullSerializer
-        return RecipeSerializer
+        if self.request.method in SAFE_METHODS:
+            return RecipeReadSerializer
+        return RecipeWriteSerializer
 
-    def get_serializer_context(self):
-        context = super().get_serializer_context()
-        context.update({'request': self.request})
-        return context
+    def perform_create(self, serializer):
+        serializer.save(author=self.request.user)
 
-
-class FavoriteApiView(APIView):
-    permission_classes = [IsAuthenticated, ]
-
-    def get(self, request, favorite_id):
-        user = request.user
-        data = {
-            'recipe': favorite_id,
-            'user': user.id
-        }
-        serializer = FavoriteSerializer(data=data,
-                                        context={'request': request})
-        if not serializer.is_valid():
-            return Response(
-                serializer.errors,
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        serializer.save()
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
-
-    def delete(self, request, favorite_id):
-        user = request.user
-        recipe = get_object_or_404(Recipe, id=favorite_id)
-        Favorite.objects.filter(user=user, recipe=recipe).delete()
-        return Response(status=status.HTTP_204_NO_CONTENT)
-
-
-class ShoppingView(APIView):
-    permission_classes = [IsAuthenticated, ]
-
-    def get(self, request, recipe_id):
-        user = request.user
-        data = {
-            'recipe': recipe_id,
-            'user': user.id
-        }
-        context = {'request': request}
-        serializer = ShoppingListSerializer(data=data,
-                                            context=context)
-        if not serializer.is_valid():
-            return Response(
-                serializer.errors,
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        serializer.save()
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
-
-    def delete(self, request, recipe_id):
-        user = request.user
-        recipe = get_object_or_404(Recipe, id=recipe_id)
-        ShoppingList.objects.filter(user=user, recipe=recipe).delete()
-        return Response(status=status.HTTP_204_NO_CONTENT)
-
-
-class DownloadShoppingCart(APIView):
-    permission_classes = [IsAuthenticated, ]
-
-    def get(self, request):
-        shopping_list = {}
-        ingredients = IngredientAmount.objects.filter(
-            recipe__purchases__user=request.user
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        serializer = RecipeReadSerializer(
+            instance=serializer.instance,
+            context={'request': self.request}
         )
-        for ingredient in ingredients:
-            amount = ingredient.amount
-            name = ingredient.ingredient.name
-            measurement_unit = ingredient.ingredient.measurement_unit
-            if name not in shopping_list:
-                shopping_list[name] = {
-                    'measurement_unit': measurement_unit,
-                    'amount': amount
-                }
-            else:
-                shopping_list[name]['amount'] += amount
-        main_list = ([f"* {item}:{value['amount']}"
-                      f"{value['measurement_unit']}\n"
-                      for item, value in shopping_list.items()])
-        today = datetime.date.today()
-        main_list.append(f'\n From FoodGram with love, {today.year}')
-        response = HttpResponse(main_list, 'Content-Type: text/plain')
-        response['Content-Disposition'] = 'attachment; filename="BuyList.txt"'
-        return response
+        headers = self.get_success_headers(serializer.data)
+        return Response(
+            serializer.data, status=HTTP_201_CREATED, headers=headers
+        )
+
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop('partial', False)
+        instance = self.get_object()
+        serializer = self.get_serializer(
+            instance, data=request.data, partial=partial
+        )
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+        serializer = RecipeReadSerializer(
+            instance=serializer.instance,
+            context={'request': self.request},
+        )
+        return Response(
+            serializer.data, status=HTTP_200_OK
+        )
+
+    def add_to_favorite(self, request, recipe):
+        try:
+            Favorite.objects.create(user=request.user, recipe=recipe)
+        except IntegrityError:
+            return Response(
+                {ERRORS_KEY: FAVORITE_ALREADY_EXISTS},
+                status=HTTP_400_BAD_REQUEST,
+            )
+        serializer = RecipeShortReadSerializer(recipe)
+        return Response(
+            serializer.data,
+            status=HTTP_201_CREATED,
+        )
+
+    def delete_from_favorite(self, request, recipe):
+        favorite = Favorite.objects.filter(user=request.user, recipe=recipe)
+        if not favorite.exists():
+            return Response(
+                {ERRORS_KEY: FAVORITE_DONT_EXIST},
+                status=HTTP_400_BAD_REQUEST,
+            )
+        favorite.delete()
+        return Response(status=HTTP_204_NO_CONTENT)
+
+    @action(
+        methods=('get', 'delete',),
+        detail=True,
+        permission_classes=(IsAuthenticated,)
+    )
+    def favorite(self, request, pk=None):
+        recipe = get_object_or_404(Recipe, pk=pk)
+        if request.method == 'GET':
+            return self.add_to_favorite(request, recipe)
+        return self.delete_from_favorite(request, recipe)

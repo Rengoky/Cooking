@@ -1,106 +1,43 @@
-from django.contrib.auth import get_user_model
-from rest_framework import serializers
-from rest_framework.validators import UniqueTogetherValidator
+from django.contrib.auth.hashers import make_password
+from rest_framework.serializers import ModelSerializer, SerializerMethodField
 
-from .models import Follow
-
-User = get_user_model()
+from recipes.serializers.nested import RecipeShortReadSerializer
+from .models import User
 
 
-class UserFollowSerializer(serializers.ModelSerializer):
-
-    following = serializers.SlugRelatedField(
-        slug_field='id',
-        queryset=User.objects.all(),
-    )
-    user = serializers.SlugRelatedField(
-        slug_field='id',
-        queryset=User.objects.all(),
-        default=serializers.CurrentUserDefault()
-    )
-
-    class Meta:
-        fields = '__all__'
-        model = Follow
-        validators = [
-            UniqueTogetherValidator(
-                queryset=Follow.objects.all(),
-                fields=('user', 'following'),
-                message='Такая подписка уже существует'
-            )
-        ]
-
-    def validate(self, data):
-        if (data['user'] == data['following']
-                and self.context['request'].method == 'POST'):
-            raise serializers.ValidationError(
-                'Нельзя подписаться на самого себя'
-            )
-        return data
-
-    def to_representation(self, instance):
-        request = self.context.get('request')
-        return FollowListSerializer(
-            instance.following,
-            context={'request': request}
-        ).data
-
-
-class FollowListSerializer(serializers.ModelSerializer):
-    recipes = serializers.SerializerMethodField()
-    recipes_count = serializers.SerializerMethodField()
-    is_subscribed = serializers.SerializerMethodField()
+class UserSerializer(ModelSerializer):
+    is_subscribed = SerializerMethodField('is_subscribed_user')
 
     class Meta:
         model = User
         fields = (
-            'email', 'id', 'username', 'first_name', 'last_name',
-            'is_subscribed', 'recipes', 'recipes_count'
+            'id', 'email', 'username', 'first_name', 'last_name', 'password',
+            'is_subscribed',
+        )
+        extra_kwargs = {
+            'password': {'write_only': True, 'required': True},
+        }
+
+    def is_subscribed_user(self, obj):
+        user = self.context['request'].user
+        return (
+            user.is_authenticated
+            and obj.subscribing.filter(user=user).exists()
         )
 
-    def get_is_subscribed(self, user):
-        current_user = self.context.get('current_user')
-        other_user = user.following.all()
-        if user.is_anonymous:
-            return False
-        if other_user.count() == 0:
-            return False
-        if Follow.objects.filter(user=user, following=current_user).exists():
-            return True
-        return False
+    def create(self, validated_data):
+        validated_data['password'] = (
+            make_password(validated_data.pop('password'))
+        )
+        return super().create(validated_data)
 
-    def get_recipes(self, obj):
-        from recipes.serializers import RecipeImageSerializer
-        recipes = obj.recipes.all()[:3]
-        request = self.context.get('request')
-        return RecipeImageSerializer(
-            recipes, many=True,
-            context={'request': request}
-        ).data
+
+class SubscriptionSerializer(UserSerializer):
+    recipes = RecipeShortReadSerializer(many=True)
+    recipes_count = SerializerMethodField()
+
+    class Meta(UserSerializer.Meta):
+        fields = UserSerializer.Meta.fields + ('recipes', 'recipes_count',)
 
     def get_recipes_count(self, obj):
         return obj.recipes.count()
-
-
-class CurrentUserSerializer(serializers.ModelSerializer):
-    is_subscribed = serializers.SerializerMethodField()
-
-    class Meta:
-        model = User
-        fields = (
-            'id',
-            'email',
-            'is_subscribed',
-            'username',
-            'first_name',
-            'last_name',
-            'password'
-        )
-        extra_kwargs = {"password": {'write_only': True}}
-
-    def get_is_subscribed(self, obj):
-        request = self.context.get('request')
-        if request is None or request.user.is_anonymous:
-            return False
-        user = request.user
-        return Follow.objects.filter(following=obj, user=user).exists()

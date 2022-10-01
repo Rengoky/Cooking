@@ -1,47 +1,63 @@
-from django.contrib import admin
+from django.contrib.admin import ModelAdmin, display, register
 
-from .models import (Favorite, Recipe, Ingredient,
-                     ShoppingList, IngredientAmount)
+from foodgram.constants import EMPTY
+from .models import CountOfIngredient, Favorite, Ingredient, Recipe, Tag
 
 
-class IngredientAdmin(admin.ModelAdmin):
-    list_display = (
-        'id',
-        'name',
-        'measurement_unit'
-    )
+@register(Tag)
+class TagAdmin(ModelAdmin):
+    list_display = ('id', 'name', 'slug', 'color',)
+    search_fields = ('name', 'slug',)
+    ordering = ('color',)
+    empty_value_display = EMPTY
+
+
+@register(Ingredient)
+class IngredientAdmin(ModelAdmin):
+    list_display = ('name', 'measurement_unit',)
+    list_filter = ('name',)
     search_fields = ('name',)
-    empty_value_display = '-пусто-'
+    ordering = ('measurement_unit',)
+    empty_value_display = EMPTY
 
 
-class IngredientsInline(admin.TabularInline):
-    model = Ingredient
+@register(Recipe)
+class RecipeAdmin(ModelAdmin):
+    list_display = ('name', 'author',)
+    list_filter = ('name', 'author', 'tags',)
+    readonly_fields = ('added_in_favorites',)
+    empty_value_display = EMPTY
 
-
-class RecipeAdmin(admin.ModelAdmin):
-    list_display = (
-        'id',
-        'author',
-        'name',
-        'image',
-        'text',
-        'is_favorited',
-        'ingredients',
-    )
-    search_fields = ('author', 'name')
-    list_filter = ('author', 'name', 'tags')
-    empty_value_display = '-пусто-'
-
-    def is_favorited(self, obj):
+    @display(description='Общее число добавлений в избранное')
+    def added_in_favorites(self, obj):
         return obj.favorites.count()
 
-    def ingredients(self, obj):
-        return list(obj.ingredients.all())
-    ingredients.short_description = 'Ингредиенты'
+
+@register(CountOfIngredient)
+class CountOfIngredientAdmin(ModelAdmin):
+    list_display = (
+        'id', 'ingredient', 'amount', 'get_measurement_unit',
+        'get_recipes_count',
+    )
+    readonly_fields = ('get_measurement_unit',)
+    list_filter = ('ingredient',)
+    ordering = ('ingredient',)
+    empty_value_display = EMPTY
+
+    @display(description='Единица измерения')
+    def get_measurement_unit(self, obj):
+        try:
+            return obj.ingredient.measurement_unit
+        except CountOfIngredient.ingredient.RelatedObjectDoesNotExist:
+            return EMPTY
+
+    @display(description='Количество ссылок в рецептах')
+    def get_recipes_count(self, obj):
+        return obj.recipes.count()
 
 
-admin.site.register(Recipe, RecipeAdmin)
-admin.site.register(Favorite)
-admin.site.register(Ingredient, IngredientAdmin)
-admin.site.register(IngredientAmount)
-admin.site.register(ShoppingList)
+@register(Favorite)
+class FavoriteAdmin(ModelAdmin):
+    list_display = ('user', 'recipe',)
+    list_filter = ('user', 'recipe',)
+    empty_value_display = EMPTY
