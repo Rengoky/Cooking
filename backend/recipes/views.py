@@ -123,3 +123,6 @@ class RecipeViewSet(ModelViewSet):
         if request.method == 'GET':
             return self.add_to_favorite(request, recipe)
         return self.delete_from_favorite(request, recipe)
+
+    def foo(self):
+        pass
